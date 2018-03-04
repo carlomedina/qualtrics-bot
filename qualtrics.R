@@ -1,7 +1,7 @@
 library(RSelenium)
 library(magrittr)
 
-
+# checkForServer()
 remDr <- remoteDriver(remoteServerAddr = "192.168.99.100" 
                       , port = 4445L
                       , browserName = "firefox"
@@ -53,31 +53,45 @@ findTime <- function(time) {
 
 
 findSoftware <- function(software) {
-  return(list(DATA="QR~QID7~1",
+  return(list(Data="QR~QID7~1",
                 SAS="QR~QID7~5",
                 GIS="QR~QID7~12",
-                Concepts="QR~QID7~2",
-                STATA="QR~QID7~6",
+                "Statistical Tools/Concepts"="QR~QID7~2",
+                Stata="QR~QID7~6",
                 SQL="QR~QID7~11",
                 Excel="QR~QID7~3", 
                 SPSS="QR~QID7~7",
                 Qualtrics="QR~QID7~13",
                 Eviews="QR~QID7~4",
-                RStudio="QR~QID7~8",
+                "R-Studio"="QR~QID7~8",
                 Other="QR~QID7~10")[[software]])
 }
 
 
-fillInfo <- function(tutors, username, classyear, major, course, day, month, time, softwares) {
+fillInfo <- function(tutors, username, classyear, major, course, day, month, time, softwares, lengthTime, debug=T) {
   remDr$navigate("https://wesleyan.co1.qualtrics.com/jfe/form/SV_6gTfM2Q0AnAbbyB")
   Sys.sleep(2)
   # multiple tutors
+  tutors <- strsplit(tutors, ",") %>% unlist() %>% str_trim()
+  for (tutor in tutors) {
+    tutorbox <- remDr$findElement(using='xpath', 
+                                  '//*[@id="QID1group0"]')
+    tutor <- remDr$findElement(using='xpath', 
+                               paste0('//*[@id="', findTutor(tutor), '"]'))
+    tutor$mouseMoveToLocation(webElement=tutor)
+    tutor$buttondown()
+    tutor$getElementLocation()
+    tutor$mouseMoveToLocation(webElement=tutorbox)
+    tutor$buttonup()
+  }
+  
+  
   # fill in the form
   usernameELT <- remDr$findElement('id', 'QR~QID2~1')
   usernameELT$sendKeysToElement(list(username))
   
   classyrELT <- remDr$findElement('id', 'QR~QID2~2')
-  classyrELT$sendKeysToElement(list(classyear))
+  classyrELT$sendKeysToElement(list(as.character(classyear)))
   
   majorELT <- remDr$findElement('id', 'QR~QID2~3')
   majorELT$sendKeysToElement(list(major))
@@ -97,10 +111,10 @@ fillInfo <- function(tutors, username, classyear, major, course, day, month, tim
                             paste0('//*[@id="', findTime(time),'"]'))
   timeELT$clickElement()
   
-  lengthELT <- remDr$findElement('id', 'QR~QID6')
-  lengthELT$sendKeysToElement(list("1"))
-  
-  
+  if (!is.na(as.numeric(lengthTime))) {
+    lengthELT <- remDr$findElement('id', 'QR~QID6')
+    lengthELT$sendKeysToElement(list(as.character(lengthTime)))
+  }
   
   # multiple checkboxes
   for (software in softwares) {
@@ -109,25 +123,46 @@ fillInfo <- function(tutors, username, classyear, major, course, day, month, tim
     buttonELT$clickElement()
   }
   
-  for (tutor in tutors) {
-      tutorbox <- remDr$findElement(using='xpath', 
-                                    '//*[@id="QID1group0"]')
-      tutor <- remDr$findElement(using='xpath', 
-                                 paste0('//*[@id="', findTutor(tutor), '"]'))
-      tutor$mouseMoveToLocation(webElement=tutor)
-      tutor$buttondown()
-      tutor$getElementLocation()
-      tutor$mouseMoveToLocation(webElement=tutorbox)
-      tutor$buttonup()
+  if (!debug) {
+    # disabled when debugging
+    submitELT <- remDr$findElement(using = 'xpath', '//*[@id="NextButton"]')
+    submitELT$clickElement()
   }
-  
-  ## disable this when debugging
-   # submitELT <- remDr$findElement(using = 'xpath', '//*[@id="NextButton"]')
-  # submitELT$clickElement()
   
   
 }
-
-
-fillInfo(c("Kyle", "Carlo"), "mkaparakis", "2012", "MATH", "QAC201", "Monday", "September", "Afternoon", c("SAS", "STATA"))
+# sample
+fillInfo(c("Kyle", "Ann"), "mkaparakis", "2012", "MATH", "QAC201", "Monday", "September", "Afternoon", c("SAS", "Stata"), 10)
+library(dplyr)
+library(lubridate)
+library(stringr)
+data <- read.csv("QAC-Response-v3-QAC-Registration-Form.csv", stringsAsFactors = F)
+names(data) <- c("username", 
+                 "classyear", 
+                 "major", 
+                 "course", 
+                 "softwares", 
+                 "tutornames", 
+                 "timestamp", 
+                 "token",
+                 "whitespace",
+                 "lengthTime",
+                 "Qualtrics",
+                 "isGMTTimeStamp")
+data %<>%
+  filter(isGMTTimeStamp == 0) %>%
+  mutate(timestamp = ymd_hms(timestamp),
+         month = as.character(month(timestamp, label = T, abbr = F)) ,
+         hour = hour(timestamp),
+         day = as.character(wday(timestamp, label = T, abbr = F)),
+         time = ifelse(hour >= 15 & hour <= 6, "Afternoon", "Evening"),
+         username = str_replace(username, "@.*", ""))
+for (i in 1:nrow(data)) {
+  # fillInfo <- function(tutors, username, classyear, major, course, day, month, time, softwares) {
+  fillInfo(data$tutornames[i], data$username[i], data$classyear[i], 
+           data$major[i], data$course[i], data$day[i], data$month[i], 
+           data$time[i], data$softwares[i], data$lengthTime[i], debug=F)
+  print(i)
+  Sys.sleep(2)
+}
   
